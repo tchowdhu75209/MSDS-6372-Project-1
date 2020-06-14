@@ -44,23 +44,41 @@ library(mltools)
 moddata = read.csv("modelingData.csv", header = TRUE)
 projdata = read.csv("projectionData.csv", header = TRUE)
 
+##Training Dataset modified with TimeStamp (month, day, year, monthyear)
+trainTSdata = read.csv("train_TimeStamp.csv", header = TRUE)
+
 # Identify Structure and Stats
 summary(moddata)
 str(moddata)
 summary(projdata)
 str(projdata)
+
+## Writing data out to Excel File
+install.packages("writexl")
+library(writexl)
+write_xlsx(x = train_df_IQR, path = "train_df.xlsx", col_names = TRUE)
+write_xlsx(x = test_df_IQR, path = "test_df.xlsx", col_names = TRUE)
+
+##Aggregate Trainimg Dataset by MonthYear for Goal #2
+trainTSdata = aggregate(trainTSdata$price_doc,
+               list(time = trainTSdata$monthyear),
+               mean)
+write_xlsx(x = trainTSdata, path = "aggdataList.xlsx", col_names = TRUE)
+head((trainTSdata))
+
+
 ```
 
 Data Cleaning and Wrangling
-
 ```{r Data Wrangling, echo=FALSE}
 # Data Cleaning / Wrangling (any renaming of variables or standardizing of values.)
+# Imputation Using Multivariate Imputation by Chained Equation (MICE)
 
 # Impute Missing Values
 moddata_imp = mice(moddata, m=5, maxit=5, method='cart', seed = 500)
 moddata_imp2 <- complete(moddata_imp, "long", inc = TRUE)
 
-projdata_imp = mice(moddata, m=5, maxit=5, method='cart', seed = 500)
+projdata_imp = mice(projdata, m=5, maxit=5, method='cart', seed = 500)
 projdata_imp2 = complete(projdata_imp, "long", inc = TRUE)
 
 train_df = moddata_imp2 %>% filter(.imp == 5)
@@ -69,14 +87,12 @@ test_df = projdata_imp2 %>% filter(.imp == 5)
 train_df <- na.omit(train_df)
 test_df <- na.omit(test_df)
 
+
 ```
 
 Exploratory Data Analysis
-
 ```{r Outlier, echo=FALSE}
 # Outlier Identification and Handling
-
-# Function to Cap the Outliers using IQR
 outlierTreament<-function(x){
   qnt <- quantile(x, probs=c(.25, .75), na.rm = T)
   caps <- quantile(x, probs=c(.05, .95), na.rm = T)
@@ -90,7 +106,7 @@ numeric_cols<-test_df[sapply(test_df, is.numeric)]
 numeric_data<-test_df[,test_df%in%numeric_cols]
 
 numeric_cols2<-train_df[sapply(train_df, is.numeric)]
-numeric_data2<-train_df[,train_df%in%numeric_cols]
+numeric_data2<-train_df[,train_df%in%numeric_cols2]
 
 # Apply Outlier/IQR Functions to DBs
 test_df_IQR<-as.data.frame(sapply(numeric_data,outlierTreament))
@@ -98,6 +114,10 @@ train_df_IQR<-as.data.frame(sapply(numeric_data2,outlierTreament))
 
 summary(test_df_IQR)
 summary(train_df_IQR)
+
+
+
+
 ```
 
 ```{r Miss Value, echo=FALSE}
@@ -116,7 +136,6 @@ vis_miss(train_df_IQR, warn_large_data = FALSE)
 #basic plots to analyize data
 ############################################
 
-
 # Plot to show the count by Product_type (Investment vs OwnerOccupie)
 prodCount <- moddata %>%
   group_by(product_type) %>%
@@ -128,8 +147,8 @@ ggplot(prodCount, aes(x = product_type, y = counts)) +
   theme_grey()
 
 #PLot Price_doc vs full_sq
-ggplot(aes(x=full_sq, y=price_doc), data=train_df_IQR) + 
-    geom_point(color='blue')
+ggplot(aes(x=full_sq, y=price_doc), data=train_df) + 
+    geom_point(color='blue')+geom_smooth()
 
 
 # % of missed data by features
@@ -150,19 +169,6 @@ train_df_IQR %>%
 
 table(train_df_IQR$build_year)
 
-# Date features
-ts1 = as.Date(timestamp)
-data[,":="(date_yday=yday(timestamp)
-           ,date_month=month(timestamp)
-           ,date_year=year(timestamp)
-           ,date_week=week(timestamp)
-           ,date_mday=mday(timestamp)
-           ,date_wday=wday(timestamp)
-)]
-
-
-str(train_df_IQR) 
-
 ```
 
 ```{r Multicollinearity, echo=FALSE}
@@ -177,148 +183,8 @@ df_numeric[is.na(df_numeric)] <- "0"
 df_numeric <- df_numeric[, sapply(df_numeric, is.numeric)]
 df_corr <- round(cor(df_numeric),2)
 
-corrplot(cor(df_numeric), diag = FALSE, order = "FPC",
+corrplot(cor(df_corr), diag = FALSE, order = "FPC",
          tl.pos = "td", tl.cex = 0.5, method = "color", type = "upper")
 
 ```
-
-```{r Assumptions, echo=FALSE}
-# Homoscedasticity, normal distributions of the response for fixed values of the explanatory variable(s), linear relationship between the mean of the response and each explanatory variable, etc.  This is where you would apply transformations (log, square root, etc.)
-
-histogram(train_df_IQR$price_doc)
-train_df_IQR["log_price_doc"] = log(train_df_IQR$price_doc,10)
-histogram(train_df_IQR$log_price_doc)
-
-#Testing outliers
-boxplot(train_df_IQR$num_room)
-boxplot(train_df_IQR$max_floor)
-boxplot(train_df_IQR$full_sq)
-boxplot(train_df_IQR$full_sq)
-
-```
-
-```{r Variable Selection, echo=FALSE}
-# Variable selection: For example, there are many potential explanatory variables. Running stepwise variable selection will not necessarily provide a final model, but may leave you with a smaller set of potential explanatory variables to work with.
-
-```
-
-```{r Miscellaneous, echo=FALSE}
-# Anything else that might be appropriate in learning about the data before getting started.  (Example: You might analyze interactions between explanatory variables in the analysis.)
-
-```
-
-```{r Model building, echo=FALSE}
-# Model using Stepwise Elimination Process)
-
-#Feature Engineering
-train_df_IQR["building_age"] = 2020 - train_df_IQR$build_year
-train_df_IQR["diff_floor"] = train_df_IQR$max_floor-train_df_IQR$floor
-
-#One Hot Encoding for Invetment Categorical Variable
-#newdata <- one_hot(as.data.table(moddata$product_type))
-#train_df_IQR["V1_Investment"] = newdata$V1_Investment
-#train_df_IQR["V1_OwnerOccupier"] = newdata$V1_OwnerOccupier
-
-#Data Partision
-set.seed(100) 
-index = sample(1:nrow(train_df_IQR), 0.7*nrow(train_df_IQR)) 
-
-train = train_df_IQR[index,] # Create the training data 
-test = train_df_IQR[-index,] # Create the test data
-
-dim(train)
-dim(test)
-
-#OLS Model with StepWise
-OLS_model = step(
-            lm(log_price_doc~
-                  timestamp+
-            
-                  full_sq+floor+hospital_beds_raion+life_sq+num_room+max_floor+raion_popul+
-                  kitch_sq+preschool_quota+
-                  healthcare_centers_raion+university_top_20_raion+shopping_centers_raion+
-                  metro_km_walk+
-                  healthcare_centers_raion+university_top_20_raion+shopping_centers_raion+
-                 
-                  build_count_block+build_count_wood+build_count_frame+build_count_brick+
-                 
-                  build_count_before_1920+
-                 
-                  kremlin_km+big_road1_km+big_road2_km+railroad_km+bus_terminal_avto_km+big_market_km+market_shop_km+
-                  
-                  office_raion+
-                  railroad_station_avto_min+public_transport_station_km+ice_rink_km+
-                  swim_pool_km+fitness_km+university_km+
-               
-                  X7_14_all+X0_17_all+X16_29_all+X0_13_all
-               
-               
-                , data = train), direction="forward")
-
-summary(OLS_model)
-
-#Function to evaluate metrics
-eval_metrics = function(model, df, predictions, target){
-    resids = df[,target] - predictions
-    resids2 = resids**2
-    N = length(predictions)
-    r2 = as.character(round(summary(model)$r.squared, 2))
-    adj_r2 = as.character(round(summary(model)$adj.r.squared, 2))
-    print(adj_r2) #Adjusted R-squared
-    print(as.character(round(sqrt(sum(resids2)/N), 2))) #RMSE
-}
-
-
-#predicting and evaluating the model on train data
-predictions = predict(OLS_model, newdata = train)
-eval_metrics(OLS_model, train, predictions, target = 'log_price_doc')
-
-#predicting and evaluating the model on test data
-predictions = predict(OLS_model, newdata = test)
-eval_metrics(OLS_model, test, predictions, target = 'log_price_doc')
-
-a = colnames(moddata)
-a
-
-str(moddata)
-
-###**Removed Features ####
-#school_km+park_km
-#children_school
-#material+full_all
-#build_year
-#full_all+X0_6_all
-#+green_zone_part
-#+stadium_km+basketball_km+big_church_km+workplaces_km
-#big_market_raion
-#build_count_1921.1945+build_count_1946.1970+build_count_1971.1995+build_count_after_1995+
-
-
-##LASSO Regression (Second regresstion method)
-lambdas <- 10^seq(2, -3, by = -.1)
-lasso_reg = glmnet(x=df_numeric, y=df_numeric$price_doc, alpha = 1, lambda = lambdas, standardize = TRUE)
-
-##Random Forest
-rf_classifier = randomForest(log_price_doc~full_sq+children_school, 
-                             data=df_numeric, ntree=10, mtry=1, importance=TRUE)
-summary(rf_classifier)
-
-# Best 
-lambda_best <- lasso_reg$lambda.min 
-lambda_best
-
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
 
